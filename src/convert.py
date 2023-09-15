@@ -1,12 +1,14 @@
-import supervisely as sly
 import os
-from dataset_tools.convert import unpack_if_archive
-import src.settings as s
 from urllib.parse import unquote, urlparse
-from supervisely.io.fs import get_file_name, get_file_size
-import shutil
 
+import supervisely as sly
+from dataset_tools.convert import unpack_if_archive
+from pycocotools.coco import COCO
+from supervisely.io.fs import get_file_name, get_file_size
 from tqdm import tqdm
+
+import src.settings as s
+
 
 def download_dataset(teamfiles_dir: str) -> str:
     """Use it for large datasets to convert them on the instance"""
@@ -52,7 +54,8 @@ def download_dataset(teamfiles_dir: str) -> str:
 
         dataset_path = storage_dir
     return dataset_path
-    
+
+
 def count_files(path, extension):
     count = 0
     for root, dirs, files in os.walk(path):
@@ -60,21 +63,85 @@ def count_files(path, extension):
             if file.endswith(extension):
                 count += 1
     return count
-    
+
+
 def convert_and_upload_supervisely_project(
     api: sly.Api, workspace_id: int, project_name: str
 ) -> sly.ProjectInfo:
     ### Function should read local dataset and upload it to Supervisely project, then return project info.###
-    raise NotImplementedError("The converter should be implemented manually.")
+    dataset_path = "dentalai.v2i.coco-segmentation"
+    img_path = os.path.join(dataset_path, "imgs")
+    batch_size = 50
 
-    # dataset_path = "/local/path/to/your/dataset" # general way
-    # dataset_path = download_dataset(teamfiles_dir) # for large datasets stored on instance
+    inst_test = os.path.join(dataset_path, "test", "_annotations.coco.json")
+    inst_train = os.path.join(dataset_path, "train", "_annotations.coco.json")
+    inst_valid = os.path.join(dataset_path, "valid", "_annotations.coco.json")
 
-    # ... some code here ...
+    instances = {"test": inst_test, "train": inst_train, "valid": inst_valid}
 
-    # sly.logger.info('Deleting temporary app storage files...')
-    # shutil.rmtree(storage_dir)
+    instance_coco = COCO(inst_train)
+    categories = instance_coco.cats
 
-    # return project
+    def segm_fix(segm):
+        geometry = []
+        for i in range(0, len(segm) - 1, 2):
+            cords = sly.PointLocation(segm[i + 1], segm[i])
+            geometry.append(cords)
+        return geometry
 
+    def create_ann(image_path, img_dict):
+        image_id = img_dict[image_path]
+        labels = []
+        img_height = images[image_id]["height"]
+        img_wight = images[image_id]["width"]
+        for label in annotations[image_id]:
+            try:
+                segm = label["segmentation"]
+                segm_fixed = segm_fix(segm[0])
+            except Exception:
+                pass
+            cat_id = label["category_id"]
+            label_name = categories[cat_id]["name"]
+            obj_class = meta.get_obj_class(label_name)
+            geometry = sly.Polygon(segm_fixed)
+            curr_label = sly.Label(geometry, obj_class)
+            labels.append(curr_label)
+        return sly.Annotation(img_size=(img_height, img_wight), labels=labels)
 
+    obj_classes = [sly.ObjClass(categories[cat]["name"], sly.Polygon) for cat in categories]
+
+    project = api.project.create(workspace_id, project_name, change_name_if_conflict=True)
+    meta = sly.ProjectMeta(obj_classes=obj_classes)
+    api.project.update_meta(project.id, meta.to_json())
+
+    dataset_test = api.dataset.create(project.id, "test", change_name_if_conflict=True)
+    dataset_train = api.dataset.create(project.id, "train", change_name_if_conflict=True)
+    dataset_valid = api.dataset.create(project.id, "valid", change_name_if_conflict=True)
+
+    def get_path(file, ds):
+        return os.path.join(dataset_path, ds, file)
+
+    for inst in instances:
+        if inst == "test":
+            dataset = dataset_test
+        elif inst == "train":
+            dataset = dataset_train
+        else:
+            dataset = dataset_valid
+        instance_coco = COCO(instances[inst])
+        categories = instance_coco.cats
+        images = instance_coco.imgs
+        indexes = list(images)
+        annotations = instance_coco.imgToAnns
+        progress = sly.Progress("Create dataset {}".format(dataset.name), len(indexes))
+        for index_batch in sly.batched(indexes, batch_size=batch_size):
+            img_paths = [get_path(images[i]["file_name"], inst) for i in index_batch]
+            img_keys = [images[i]["id"] for i in index_batch]
+            img_names_batch = [os.path.basename(img_path) for img_path in img_paths]
+            img_dict = {img[0]: img[1] for img in zip(img_paths, img_keys)}
+            img_infos = api.image.upload_paths(dataset.id, img_names_batch, img_paths)
+            img_ids = [im_info.id for im_info in img_infos]
+            anns_batch = [create_ann(image_path, img_dict) for image_path in img_paths]
+            api.annotation.upload_anns(img_ids, anns_batch)
+            progress.iters_done_report(len(img_names_batch))
+    return project

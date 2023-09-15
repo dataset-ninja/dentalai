@@ -79,8 +79,7 @@ def convert_and_upload_supervisely_project(
 
     instances = {"test": inst_test, "train": inst_train, "valid": inst_valid}
 
-    instance_coco = COCO(inst_train)
-    categories = instance_coco.cats
+    label_names = ["Caries", "Cavity", "Crack", "Tooth"]
 
     def segm_fix(segm):
         geometry = []
@@ -108,7 +107,7 @@ def convert_and_upload_supervisely_project(
             labels.append(curr_label)
         return sly.Annotation(img_size=(img_height, img_wight), labels=labels)
 
-    obj_classes = [sly.ObjClass(categories[cat]["name"], sly.Polygon) for cat in categories]
+    obj_classes = [sly.ObjClass(name, sly.Polygon) for name in label_names]
 
     project = api.project.create(workspace_id, project_name, change_name_if_conflict=True)
     meta = sly.ProjectMeta(obj_classes=obj_classes)

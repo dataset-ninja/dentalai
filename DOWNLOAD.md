@@ -1,6 +1,6 @@
 Dataset **Dentalai** can be downloaded in [Supervisely format](https://developer.supervisely.com/api-references/supervisely-annotation-json-format):
 
- [Download](https://www.dropbox.com/scl/fi/dn5pfm0urvwo5up2u1vw7/dentalai-DatasetNinja.tar?rlkey=8y0iandsnjejkw8sy15h8p6fn&dl=1)
+ [Download](https://assets.supervisely.com/remote/eyJsaW5rIjogImZzOi8vYXNzZXRzLzIwODRfRGVudGFsYWkvZGVudGFsYWktRGF0YXNldE5pbmphLnRhciIsICJzaWciOiAiMllHMDlOaUtnRkNOS0NTenBZYzRpMEVsYjVhRitrdndOdVNjbEhXd21Uaz0ifQ==)
 
 As an alternative, it can be downloaded with *dataset-tools* package:
 ``` bash
